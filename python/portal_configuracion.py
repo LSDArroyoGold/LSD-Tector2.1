@@ -209,7 +209,7 @@ footer{margin-top:30px;padding-top:16px;border-top:1px solid var(--rule);
 """
 
 PIE = ('<footer>Desarrollado por el Laboratorio de Sistemas Dinámicos, '
-       'Depto. de Física, FCEyN, UBA</footer>')
+       'Departamento de Física, FCEyN, UBA</footer>')
 
 
 def pagina(titulo, cuerpo):
