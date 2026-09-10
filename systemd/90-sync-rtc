@@ -1,0 +1,33 @@
+#!/bin/bash
+# Escribe la hora del sistema al RTC (DS3231) cada vez que NetworkManager
+# confirma conectividad real -- no solo al cierre de una ventana amanecer/
+# atardecer, para que una perdida de energia abrupta (antes de que corra
+# esa rutina) no deje al RTC con una hora vieja hasta la proxima ventana.
+#
+# Complementa (no reemplaza) a sync-rtc.service (RTC->sistema al boot,
+# mejor esfuerzo con lo que el RTC tenga en ese momento) y a sync_rtc.py
+# (system->RTC al cierre de cada ventana, se deja como esta).
+#
+# NetworkManager invoca este script pasando la interfaz como $1 y el
+# evento como $2 (up, down, connectivity-change, etc). Instalado en
+# /etc/NetworkManager/dispatcher.d/, se ejecuta automaticamente.
+
+IFACE="$1"
+ESTADO="$2"
+
+if [ "$ESTADO" != "up" ] && [ "$ESTADO" != "connectivity-change" ]; then
+    exit 0
+fi
+
+# Esperar confirmacion real de sync NTP (no alcanza con "hay conexion" --
+# systemd-timesyncd puede tardar unos segundos en contactar el servidor).
+for i in $(seq 1 15); do
+    if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = "yes" ]; then
+        /usr/sbin/hwclock -w
+        logger -t sync-rtc-dispatcher "RTC actualizado tras NTP confirmado (interfaz=$IFACE evento=$ESTADO)"
+        exit 0
+    fi
+    sleep 2
+done
+
+logger -t sync-rtc-dispatcher "timeout esperando confirmacion NTP, RTC no actualizado (interfaz=$IFACE evento=$ESTADO)"

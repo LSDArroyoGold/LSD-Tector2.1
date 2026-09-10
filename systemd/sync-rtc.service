@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync RTC to system clock
+After=dev-rtc0.device
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/hwclock --hctosys
+
+[Install]
+WantedBy=multi-user.target

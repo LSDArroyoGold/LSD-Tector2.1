@@ -1,0 +1,46 @@
+# Copiar a rclone.conf (sin el .ejemplo) en ~/.config/rclone/ (el HOME real
+# del usuario que corre los scripts, ver REAL_USER/USER_HOME en cada uno) --
+# NUNCA se sincroniza por git (ver .gitignore).
+#
+# Historia (portada de LSD-Tector1.1, mismo diagnostico real en los dos
+# dispositivos):
+#
+# 1) Problema original: el refresh token de OAuth caducaba cada 7 dias
+#    exactos. Causa: rclone pedia el scope "drive" completo, que Google
+#    clasifica "restringido" -- ese nivel exige verificacion (revision de
+#    seguridad CASA) para dejar de tener el limite de 7 dias, aplica
+#    AUNQUE la app este publicada en produccion.
+#
+# 2) Primer intento de fix (migrado el 6/9/2026): cuenta de servicio. NO
+#    FUNCIONA para subir archivos en una cuenta de Google personal (no
+#    Workspace) -- aunque la carpeta este compartida como Editor, Google
+#    la rechaza con "Service Accounts do not have storage quota" al
+#    intentar crear cualquier archivo. Solo sirve para LEER. Descartado
+#    (en tector1 el 6/9, portado aca el 7/9 -- este repo se habia quedado
+#    con la version vieja de este archivo hasta ahora).
+#
+# 3) Fix real: OAuth de usuario con scope "drive.file" en vez de "drive"
+#    completo. Es un scope NO sensible -- no tiene el limite de 7 dias.
+#
+# IMPORTANTE -- el token de abajo es POR DISPOSITIVO: no copiar el
+# rclone.conf de tector1 a tector2 ni viceversa. Cada uno necesita su
+# propio client_id/client_secret/token generado con SU PROPIA cuenta de
+# Drive de destino (lsdarroyogold@gmail.com u otra que Diego indique
+# para tector2). Para generar un token nuevo con este scope:
+#   rclone authorize drive --drive-scope drive.file <client_id> <client_secret>
+# OJO: "rclone authorize" SIN el flag --drive-scope pide el scope
+# completo por default, sin avisar. Verificar siempre con:
+#   curl -s "https://oauth2.googleapis.com/tokeninfo?access_token=<access_token>"
+# antes de dar un token nuevo por bueno.
+#
+# Convencion de rutas (7/9/2026): todo lo que sube tector2 va dentro de
+# una carpeta unica "Tector 2" en la raiz de este Drive (ver DRIVE_PATH
+# en config/config_general.txt) -- por eso NO hay que agregar
+# root_folder_id aca ni volver a scope "drive"/cuenta de servicio.
+[gdrive]
+type = drive
+scope = drive.file
+client_id = ...
+client_secret = ...
+token = {"access_token":"...","token_type":"Bearer","refresh_token":"...","expiry":"..."}
+team_drive =

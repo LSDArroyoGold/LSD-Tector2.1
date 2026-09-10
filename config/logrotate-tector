@@ -1,0 +1,73 @@
+# logrotate-tector - instalado por install.sh en /etc/logrotate.d/tector.
+# Agregado el 4/9/2026, rediseñado el mismo dia a pedido de Diego: el
+# limite real es el TAMAÑO en disco (eso es lo que efectivamente puede
+# llenar la SD), no una antiguedad fija en dias -- "rotate 0" (sin
+# generaciones viejas guardadas, sin compress) trunca directo al tope en
+# vez de ir acumulando copias .gz, mas simple y mas practico. Los tamanos
+# de abajo estan elegidos para que, en funcionamiento NORMAL, el limite
+# represente aproximadamente 1 año -- ver el calculo real de cada uno.
+#
+# copytruncate (no el rename+reload por defecto de logrotate): estos
+# archivos los escriben procesos de larga duracion (motor.py via systemd,
+# cron cada 5 min) sin ningun mecanismo de "reabrir el archivo si cambia
+# de nombre" -- copytruncate copia el contenido y trunca el original en
+# el lugar, sin que el proceso que escribe se entere ni haga falta
+# reiniciarlo.
+#
+# "su lsd lsd": sin esto logrotate se niega a tocar estos archivos
+# ("insecure permissions", /home/lsd/... no es de root) -- confirmado a
+# mano con "logrotate -d" antes de darlo por andando.
+
+# Cadencia fija (chequeo_bateria.sh cada 5 min = 288 filas/dia), no
+# depende del ambiente. Medido el 4/9/2026: ~58 bytes/fila reales ->
+# ~16.4KB/dia -> ~5.8MB/año. 8M da ~1.4 años de margen.
+/home/lsd/LSD-Tector2.0/log_bateria.txt
+{
+	size 8M
+	rotate 0
+	missingok
+	notifempty
+	copytruncate
+	su lsd lsd
+}
+
+# Tambien de cadencia mayormente fija (2 ventanas/dia + alertas
+# ocasionales). Medido el 4/9/2026: ~308 bytes/dia reales (15 dias) ->
+# ~112KB/año -- pero motor.py/actualizar_tectornet_pi.sh ganaron alertas
+# nuevas el mismo dia (BirdWeather, Drive, chequeos de salud) que todavia
+# no estan reflejadas en esa medicion. 512K da margen amplio para eso.
+/home/lsd/LSD-Tector2.0/log_sistema.txt
+{
+	size 512k
+	rotate 0
+	missingok
+	notifempty
+	copytruncate
+	su lsd lsd
+}
+
+# Este SI depende del ambiente (una linea por cada disparo del detector,
+# no solo por deteccion real) -- el 4/9/2026 el labo estaba
+# excepcionalmente ruidoso (gente hablando + mis propias pruebas):
+# 495KB en 5h17m medidos en vivo, ~2.2MB/dia extrapolado, ~800MB/año en
+# ese peor caso. 1G cubre eso con margen incluso si un dia de campo real
+# fuera tan ruidoso como ese -- en la practica, con actividad real de
+# aves en vez de ruido humano continuo, deberia durar bastante mas que
+# un año.
+#
+# Dos rutas para el mismo archivo: el motor propio vive en
+# /home/lsd/TectorNET-Pi (nombre nuevo desde el 7/9/2026) o todavia en
+# /home/lsd/birdnet-lsd (nombre viejo) en un dispositivo que no paso por
+# el renombrado -- "missingok" hace que la ruta que no exista se ignore
+# sin error, asi que esta entrada cubre los dos casos sin duplicar el
+# stanza completo.
+/home/lsd/TectorNET-Pi/motor.log
+/home/lsd/birdnet-lsd/motor.log
+{
+	size 1G
+	rotate 0
+	missingok
+	notifempty
+	copytruncate
+	su lsd lsd
+}

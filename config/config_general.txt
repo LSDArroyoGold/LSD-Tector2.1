@@ -1,0 +1,279 @@
+# ATENCION -- este archivo tiene estado REAL de cada dispositivo (FIRST_START,
+# coordenadas, VENTANA_ACTIVA/CIERRE_FORZADO), no es una plantilla. Por eso
+# actualizar_repo.sh lo excluye a proposito de la sincronizacion automatica.
+# NUNCA copiar este archivo tal cual (scp/cp) de un dispositivo a otro ni del
+# repo a un dispositivo ya instalado -- pasó una vez (3/9/2026) que un scp sin
+# filtrar pisó un FIRST_START=FALSE real con el TRUE de esta copia, metiendo
+# al dispositivo en loop de modo hotspot. Si hay que agregar una clave nueva
+# (como UMBRAL_BATERIA_V/VENTANA_ACTIVA/CIERRE_FORZADO el 3/9), aplicarla con
+# sed apuntando a esa clave puntual en el dispositivo, no sobreescribiendo el
+# archivo entero.
+
+# Ruta de la carpeta en Google Drive donde se sincronizan datos y configuración
+# Puede ser una carpeta en la raíz (ej: LSD-Tector) o anidada (ej: Proyectos/LSD/Tector)
+#
+# 6/9/2026: la migracion a cuenta de servicio de config/rclone.conf.ejemplo
+# (root_folder_id, DRIVE_PATH vacio) fue un callejon sin salida -- una
+# cuenta de servicio NO PUEDE escribir en un Drive personal (no
+# Workspace): Google la rechaza con "Service Accounts do not have
+# storage quota" al intentar crear cualquier archivo, aunque la carpeta
+# este compartida como Editor. Solo sirve para leer. Mismo diagnostico
+# y mismo fix que se aplico en tector1 el mismo dia, portado aca el
+# 7/9/2026: OAuth de usuario con scope "drive.file" en vez de "drive"
+# completo (ver config/rclone.conf.ejemplo para el detalle del token).
+#
+# 7/9/2026: ademas del auth, se corrige la convencion de rutas para
+# que coincida con la de tector1 -- todo lo que sube tector2 ahora va
+# dentro de una carpeta unica "Tector 2" en la raiz de ese Drive:
+# detecciones en "Tector 2/Detecciones", y config_horarios.txt /
+# log_sistema.txt / log_reciente.txt / log_bateria.txt sueltos dentro
+# de "Tector 2/" (log_bateria.txt es el que sube chequeo_bateria.sh en
+# cada corrida del watchdog INA219, ver mas abajo -- queda en el mismo
+# lugar que el resto de los logs sin tocar ese script, porque ya lee
+# este mismo DRIVE_PATH). Diego confirma que la carpeta "Tector 2" en
+# Drive ya esta creada, migrada y compartida con los permisos
+# necesarios -- no hace falta tocar nada del lado de Drive, solo este
+# valor y el auth de arriba.
+#
+# ADVERTENCIA (7/9/2026) -- dos cosas de este mismo fix quedan
+# pendientes, NO resueltas todavia, porque tector2 estuvo apagado toda
+# la sesion en la que se hizo:
+#
+# 1) El token OAuth drive.file de arriba es solo template/config, NO una
+#    credencial viva -- falta generarlo de forma interactiva EN el
+#    dispositivo (`rclone authorize drive --drive-scope drive.file
+#    <client_id> <client_secret>`, ver config/rclone.conf.ejemplo, y
+#    verificar el scope real del token resultante contra
+#    https://oauth2.googleapis.com/tokeninfo?access_token=... antes de
+#    darlo por bueno). Hasta que eso no se haga a mano en tector2, nada
+#    de este repo puede subir nada a Drive.
+#
+# 2) Este repo (LSD-Tector2.0) no tiene ningun call site de
+#    migrar_a_tectornet_pi.sh (a diferencia de LSD-Tector1.1) -- si el
+#    motor propio (TectorNET-Pi, llamado birdnet-lsd hasta el 7/9) esta
+#    instalado en tector2, su propio destino de Drive (rclone.conf/DRIVE_PATH del
+#    lado de ese repo hermano) se configura por otro mecanismo, nunca
+#    verificado desde este lado. No asumir que el fix de arriba lo cubre
+#    -- confirmar con Diego como esta configurado ese repo en tector2
+#    antes de dar por sano el Drive de las detecciones (a diferencia del
+#    log_sistema.txt/config_horarios.txt de ESTE repo, que si quedan
+#    cubiertos por el DRIVE_PATH de arriba).
+#
+# Ver [[project_tector2_ported_fixes_7-9]] y
+# [[project_rclone_service_account_migration]] en la memoria de Claude
+# para el detalle completo de ambos gaps.
+DRIVE_PATH=Tector 2
+
+# -------------------------
+
+# Monitoreo de batería por INA219 (voltaje/corriente vía I2C) -- ACTIVO
+# desde el 3/9/2026.
+#
+# HARDWARE: INA219 en serie en el cable positivo principal (entre pack y
+# entrada del step-down -- así mide corriente real del sistema, no solo
+# voltaje), VCC del propio módulo alimentado del 3.3V de la Pi (pin 1 --
+# no necesita estar siempre encendido, solo se lee mientras la Pi está
+# despierta), SDA/SCL compartiendo el mismo bus I2C que el DS3231 (bus 1,
+# dirección 0x40, sin conflicto con el 0x68 del RTC). Lecturas reales
+# confirmadas: 7.596V / 478mA con la Pi corriendo TectorNET-Pi normalmente
+# -- ambos valores con sentido físico (2S2P Samsung INR18650-35E, ~3.8V/celda).
+#
+# SOFTWARE: watchdog reactivo tipo v1.1 -- scripts/chequeo_bateria.sh corre
+# cada 5 min por cron, SIEMPRE (no solo en ventana, ver nota de
+# "CARACTERIZACION DUAL" mas abajo -- unificado el 4/9). Lee el INA219
+# (python/registrar_bateria.py) en cada corrida; si ADEMÁS hay una
+# ventana activa y el voltaje cae por debajo de UMBRAL_BATERIA_V, marca
+# CIERRE_FORZADO=TRUE (fuera de ventana no hay nada que forzar a cerrar).
+# inicio_amanecer/atardecer.sh ponen VENTANA_ACTIVA al arrancar la
+# ventana; cierre_amanecer/atardecer.sh cierran antes de tiempo si ven
+# CIERRE_FORZADO=TRUE (además del cierre normal por horario) y resetean
+# los dos flags al terminar.
+#
+# CARACTERIZACION DUAL (agregado el 4/9/2026, unificado el mismo dia):
+# cada corrida del watchdog (python/registrar_bateria.py, en vez de
+# leer_ina219.py directo) hace DOS lecturas -- CON el MPPT conectado tal
+# cual y SIN carga (aislada) -- y loguea ambas a log_bateria.txt (CSV),
+# que se sube a Drive al final de cada corrida (best-effort, nunca
+# bloquea la decision de seguridad, que sigue basandose SOLO en la
+# lectura SIN carga). Pensado para poder reconstruir despues como se
+# comporta el pack en los dos regimenes a lo largo del tiempo --
+# seguridad y decision de corte sin cambios, esto es puramente para
+# analisis posterior.
+#
+# Unificado con el chequeo de seguridad en el mismo chequeo_bateria.sh
+# (que ahora corre siempre, no solo en ventana -- ver mas arriba) para no
+# tener dos mecanismos separados haciendo cosas parecidas.
+# python/log_curva_carga.py (el logger exploratorio del rato anterior,
+# corriendo suelto por su cuenta) queda retirado/superado por esto --
+# sacado del crontab, el archivo se deja en el repo solo de referencia.
+#
+# Agregado el 4/9/2026: cada corrida tambien loguea temp_cpu_c
+# (/sys/class/thermal), throttled (vcgencmd get_throttled -- mismo
+# bitmask usado a mano durante el debugging de undervoltage de este
+# proyecto, 0x0 = limpio) y load_avg_1min (os.getloadavg()) -- lecturas
+# casi gratis al lado de las dos del INA219, pensadas para cruzar despues
+# contra voltaje/corriente (ej. temperatura alta por uso real vs. por
+# ambiente, o un evento de throttled coincidiendo con bateria baja). Filas
+# de log_bateria.txt anteriores a esta fecha tienen menos columnas (CSV
+# desparejo a proposito, no se reescribe el historico).
+#
+# AISLADOR DE CARGA MPPT (agregado y validado el 3/9/2026, esquematico:
+# https://claude.ai/code/artifact/f9c178ff-7ef6-41eb-9c7a-5d018edceb9a) --
+# leer_ina219.py corta un instante la carga MPPT->BMS (GPIO17, PNP+MOSFET
+# dedicados, no el switch principal de alimentacion) antes de cada
+# lectura, para que SIEMPRE quede en descarga pura, sin importar si hay
+# sol entrando en ese momento. Confirmado con datos reales el mismo dia:
+# 7.012V aislado vs 8.476V sin aislar, con el MPPT cargando -- 1.46V de
+# diferencia, la lectura cruda hubiera sido groseramente optimista. El
+# default seguro de ese circuito (sin nadie manejando GPIO17) es "carga
+# conectada", sostenido solo por hardware -- ver el propio leer_ina219.py
+# para el detalle de por que el default no puede depender de la Pi acá
+# tampoco (mismo principio que el corte de alimentacion, pero aplicado a
+# un circuito distinto). Ventana de corte real: ~1.2s cada 5 min, sin
+# impacto medible en la carga a largo plazo.
+#
+# DISEÑO ACORDADO (3/9, sesión con Diego) -- dos partes separadas a
+# propósito, no una sola cosa:
+#
+# 1) CORTE DE SEGURIDAD (lo único que bloquea/cierra ventana): se queda
+#    simple, umbral de VOLTAJE puro, sin depender de ninguna curva ni
+#    calibración -- cuanta menos lógica tenga la parte de seguridad,
+#    mejor, y es lo más robusto. Nunca dispara por porcentaje, ni antes
+#    ni después de tener la curva empírica. Umbral ya definido:
+#
+#      UMBRAL_BATERIA_V=6.9   # ~3.45V/celda, ~15% de capacidad restante
+#
+#    Motivo del valor: deja ~0.4V/celda de margen sobre el peor caso
+#    posible de disparo del BMS (3.05V/celda), cubre la caída IR del
+#    propio BMS (<300mOhm) más el intervalo de 5 min entre chequeos del
+#    watchdog, y evita ciclar las celdas cerca de su corte de fábrica
+#    (2.65V/celda). Detalle completo: cuaderno de laboratorio, 14/8.
+#
+# 2) PORCENTAJE ESTIMADO (para logs/dashboard, NO gatilla nada): la
+#    tensión bajo carga no es la tensión a circuito abierto (OCV) --
+#    compensar con la corriente medida en la misma lectura:
+#      V_ocv_estimado ≈ V_medido + I_medido × R_interna_del_pack
+#    Con el aislador de carga MPPT ya en juego, esta compensación queda
+#    más simple que lo pensado originalmente: la corriente medida es
+#    siempre de descarga (nunca de carga, porque el MPPT está aislado en
+#    el instante de la lectura), así que no hace falta manejar los dos
+#    sentidos -- solo la caída IR del propio consumo de la Pi.
+#    Despues mapear ese V_ocv a % con una curva. Arrancar con la curva
+#    del datasheet Samsung INR18650-35E (nominal 3.60V, carga 4.2V, corte
+#    fábrica 2.65V, 3350-3500mAh a 0.2C) como aproximación inicial -- pero
+#    esa curva es de UNA celda a 0.2C (680mA) en laboratorio, no del pack
+#    2S2P real con BMS y carga variable de este sistema, así que en algún
+#    momento reemplazarla por una curva empírica propia:
+#
+#    PENDIENTE -- corrida de calibración (pedida por Diego, no hecha
+#    todavía, dejar para cuando la pida explícitamente):
+#      - Cargar el pack a 100% antes de arrancar (ahora estaba a 7.596V,
+#        parcial -- para cubrir el tramo alto de la curva hace falta
+#        arrancar de lleno).
+#      - Desactivar temporalmente los 4 cron de ciclo de ventana
+#        (inicio_amanecer/atardecer.sh, cierre_amanecer/atardecer.sh) para
+#        que no corten la prueba a mitad de camino -- restaurar el
+#        crontab automáticamente al terminar (o si falla algo, con trap).
+#      - Dejar la Pi despierta corriendo TectorNET-Pi de forma continua
+#        (carga real, no artificial de banco) y loguear cada 60s:
+#        timestamp, voltaje, corriente, mAh acumulados (coulomb counting
+#        UNA sola vez, offline, para construir la tabla -- no en campo).
+#      - Frenar en ~6.6V (margen sobre el corte del BMS en 6.1V), no
+#        llevarlo hasta el fondo.
+#      - Duración estimada: ~12-14hs, al consumo real medido (~470mA
+#        promedio) sobre los ~7000mAh nominales del pack 2S2P.
+#
+#    Una vez que exista la curva real: mirar a qué % corresponde
+#    aproximadamente el UMBRAL_BATERIA_V=6.9 actual (~15% según la regla
+#    vieja) y, si tiene sentido, ajustar el NÚMERO del umbral -- pero el
+#    mecanismo del watchdog sigue comparando contra voltios siempre, la
+#    curva nunca pasa a ser parte del disparo en sí.
+#
+UMBRAL_BATERIA_V=6.9
+VENTANA_ACTIVA=NONE
+CIERRE_FORZADO=FALSE
+
+# -------------------------
+
+# Retencion de audio LOCAL y de DRIVE (agregado el 4/9/2026, ver
+# scripts/limpiar_retencion.sh -- portado de LSD-Tector1.1 el mismo
+# dia, mismo mecanismo). cierre_amanecer.sh/cierre_atardecer.sh llaman
+# a ese script DESPUES de que el "rclone copy" de esa corrida haya
+# salido bien. Cuando el total (local o Drive, cada uno con su propio
+# limite) supera el limite, se borran carpetas de FECHA ENTERAS
+# (Detecciones/<fecha>/ o By_Date/<fecha>/, con todas las especies de
+# ese dia adentro) empezando por la mas vieja -- nunca archivos sueltos
+# de un dia a medias.
+#
+# Historial del numero local: primero con limite en DIAS, rediseñado el
+# mismo dia (4/9) a limite en TAMAÑO (el tamaño es el factor que
+# realmente puede llenar la SD). 806MB reales en 16 dias de uso en el
+# labo (~50MB/dia) -> 10240MB representaban ~6 meses a ese ritmo. Bajado
+# primero a 4096MB (parejo con Drive) y despues a 8192MB (8GB) a pedido
+# explicito de Diego -- local y Drive quedan con numeros DISTINTOS a
+# proposito: Drive tiene limite propio de cuenta (4GB), pero la SD local
+# (59GB, 43GB libres) tiene mas margen y no hace falta que coincidan.
+RETENCION_AUDIO_LOCAL_MB=8192
+RETENCION_DRIVE_MB=4096
+
+# -------------------------
+
+# Estado de primer arranque. TRUE activa el hotspot de configuración inicial
+FIRST_START=TRUE
+
+# -------------------------
+
+# Red WiFi de configuración.
+#
+# CAMBIO 2.1: el SSID ya NO se escribe acá. Se arma en tiempo de ejecución
+# como Tector-<SERIE>-setup, leyendo el número de serie de config/serie.txt
+# (ver python/asignar_serie.py). Tenerlo como valor fijo en este archivo era
+# la razón de que todos los dispositivos expusieran la misma red y de que la
+# app no pudiera distinguir uno de otro.
+#
+# CAMBIO 2.1: la red es ABIERTA, sin contraseña. Antes tenía una clave fija
+# (lsdtector123) que igual estaba en este repo público, así que no protegía
+# nada -- solo agregaba un paso manual para el usuario y obligaba a la app a
+# llevar la clave embebida. La ventana de exposición real es corta y
+# acotada: el hotspot solo existe mientras FIRST_START=TRUE o alguien apretó
+# el botón físico de setup, y lo único que se puede hacer desde él es
+# indicarle al Tector a qué red conectarse.
+
+# -------------------------
+
+# Ubicación geográfica de la estación. Coordenadas decimales
+
+## Latitud. Negativo para hemisferio sur
+LAT=-34.6131
+## Longitud. Negativo para oeste
+LON=-58.3772
+
+# -------------------------
+
+# Opcional. API key de eBird (gratis, ebird.org/api/keygen), usada SOLO
+# como respaldo por scripts/aplicar_ajuste_regional.sh si todavía no hay
+# un archivo de frecuencias ya cargado para esta región en
+# LSDTector-BirdNET-retrain-bsas/frecuencias/. Si se deja vacío, el
+# ajuste regional funciona igual siempre que exista ese archivo; si
+# tampoco existe, el dispositivo sigue con el modelo universal sin
+# ajustar, sin error. Ver advertencia sobre uso comercial de la API de
+# eBird en el propio script antes de usar esto en un dispositivo que se
+# vaya a vender.
+EBIRD_API_KEY=eb07b606-caf6-44a4-92f4-b0b869c4770a
+
+# -------------------------
+
+# Servidor de Tector Hub (la app móvil). Agregado en la 2.1.
+#
+# Es la URL base del servicio que mantiene la lista de usuarios, la relación
+# usuario <-> dispositivo, y el registro de números de serie. El dispositivo
+# lo usa para UNA sola cosa: registrarse en el primer arranque con internet
+# y resolver una eventual colisión de número de serie
+# (python/registrar_dispositivo.py).
+#
+# Dejarlo VACÍO es una configuración válida y soportada: el Tector graba,
+# detecta y sube a Drive exactamente igual. Lo único que pierde es aparecer
+# en la app. No agregar acá ningún token ni credencial -- este repo es
+# público, y ya hubo un incidente por eso (ver la nota de rclone.conf en
+# scripts/actualizar_repo.sh).
+SERVIDOR_URL=

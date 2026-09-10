@@ -1,0 +1,14 @@
+[Unit]
+Description=Corta la alimentacion de la Raspberry (pulso GPIO6 al latch DS3231) al apagar -- no se dispara en reboot
+DefaultDependencies=no
+Conflicts=poweroff.target halt.target
+Before=poweroff.target halt.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 __BASE_PATH__/python/cortar_alimentacion.py armar
+ExecStop=/usr/bin/python3 __BASE_PATH__/python/cortar_alimentacion.py
+
+[Install]
+WantedBy=multi-user.target
