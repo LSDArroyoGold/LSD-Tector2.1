@@ -282,11 +282,31 @@ tardar hasta dos minutos.</p>
 
 class Handler(http.server.BaseHTTPRequestHandler):
 
+    def _cors(self):
+        """La app es una PWA: corre en su propio origen y le pega a este
+        portal por IP. Sin estas cabeceras el navegador bloquea la respuesta
+        y la app no puede ni listar redes ni mandar credenciales.
+
+        Origen abierto a proposito. Este servidor solo existe mientras el
+        equipo esta en modo configuracion, en una red que el propio equipo
+        levanta, y lo unico que expone es a que WiFi conectarse. No hay nada
+        que un origen concreto protegeria."""
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors()
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
     def _responder(self, cuerpo, tipo='text/html; charset=utf-8', codigo=200):
         datos = cuerpo.encode('utf-8')
         self.send_response(codigo)
         self.send_header('Content-type', tipo)
         self.send_header('Content-Length', str(len(datos)))
+        self._cors()
         self.end_headers()
         self.wfile.write(datos)
 

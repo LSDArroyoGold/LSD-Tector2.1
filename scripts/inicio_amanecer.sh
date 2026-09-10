@@ -70,6 +70,9 @@ if [ ! -f "$MARCA" ] && [[ ! "$HORA_ACTUAL" < "$HORARIO_DELAY" ]] && [[ "$HORA_A
 	# aplicar retroactivamente a la ventana en curso -- eso rige siempre
 	# desde la proxima. La app lo dice explicitamente al confirmar.
 	rclone copy "gdrive:$DRIVE_PATH/config_horarios.txt" "$BASE_PATH/config/"
+	# El token de BirdWeather vive en el repo del motor, no en este: este
+	# script hace de puente (ver su cabecera).
+	bash "$BASE_PATH/scripts/aplicar_config_remota.sh"
 
 	# Publicar el estado apenas arranca la ventana: es lo que hace que la app
 	# muestre "Grabando" en vez del ultimo estado conocido de hace 12hs.
