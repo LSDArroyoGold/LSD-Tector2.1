@@ -208,7 +208,7 @@ footer{margin-top:30px;padding-top:16px;border-top:1px solid var(--rule);
   font-size:12px;color:var(--muted);line-height:1.55}
 """
 
-PIE = ('<footer>Dispositivo desarrollado por el Laboratorio de Sistemas '
+PIE = ('<footer>Desarrollado por el Laboratorio de Sistemas '
        'Dinámicos — FCEyN — UBA</footer>')
 
 
