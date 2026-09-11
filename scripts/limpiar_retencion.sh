@@ -27,6 +27,55 @@ RETENCION_DRIVE_MB=$(awk -F'=' '/^RETENCION_DRIVE_MB=/{print $2}' "$CONFIG_GENER
 
 # --- Local: du por carpeta de fecha (mas nueva primero), acumular
 # tamaño, borrar carpetas enteras una vez superado el limite. ---
+
+# --- Retencion por TIEMPO (criterio principal desde la 2.1) ---
+#
+# Antes solo habia limite por tamaño, que borra el dia mas viejo cuando la
+# carpeta se pasa. Funciona, pero nadie puede saber cuantos dias de audio le
+# quedan: depende de cuanto haya cantado el mes pasado. Por dias es
+# predecible, y la app puede mostrar cuanto le queda a cada carpeta.
+#
+# Los limites por tamaño de mas abajo siguen ahi como red de seguridad.
+#
+# SOLO SE BORRA EL AUDIO. El resumen de cada dia (resumenes/, y Resumenes/ en
+# Drive) no se toca nunca: es una fila por deteccion, ~5 KB contra ~50 MB del
+# audio del mismo dia, y es de donde salen las estadisticas.
+RETENCION_DIAS=$(awk -F'=' '/^RETENCION_DIAS=/{print $2}' "$CONFIG_GENERAL" | tr -d ' \r')
+
+if [ -n "$RETENCION_DIAS" ] && [ "$RETENCION_DIAS" -gt 0 ] 2>/dev/null; then
+	CORTE=$(date -d "$RETENCION_DIAS days ago" +%Y-%m-%d)
+
+	# Local: las carpetas de fecha son nombres ISO, asi que comparar como
+	# texto es comparar como fecha. No se usa `find -mtime` a proposito: la
+	# fecha del NOMBRE es la del dato, y la de modificacion cambia sola
+	# cuando algo toca el archivo.
+	find "$USER_HOME/BirdSongs/Extracted/By_Date" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
+		| while IFS= read -r FECHA; do
+			case "$FECHA" in
+				[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+				*) continue ;;
+			esac
+			if [ "$FECHA" \< "$CORTE" ]; then
+				rm -rf "$USER_HOME/BirdSongs/Extracted/By_Date/$FECHA"
+			fi
+		done
+
+	# Drive: idem, sobre las carpetas de fecha de Detecciones/.
+	if [ -n "$DRIVE_PATH" ]; then
+		timeout 60 rclone lsf --dirs-only "gdrive:$DRIVE_PATH/Detecciones" 2>/dev/null \
+			| tr -d '/' \
+			| while IFS= read -r FECHA; do
+				case "$FECHA" in
+					[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+					*) continue ;;
+				esac
+				if [ "$FECHA" \< "$CORTE" ]; then
+					timeout 120 rclone purge "gdrive:$DRIVE_PATH/Detecciones/$FECHA" 2>/dev/null
+				fi
+			done
+	fi
+fi
+
 if [ -n "$RETENCION_LOCAL_MB" ]; then
 	CAP_BYTES=$((RETENCION_LOCAL_MB * 1024 * 1024))
 	find "$USER_HOME/BirdSongs/Extracted/By_Date" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \

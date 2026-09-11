@@ -17,3 +17,6 @@ config/serie.txt
 # Foto de estado que lee la app. La regenera publicar_estado.sh en cada
 # apertura y cierre de ventana.
 estado.json
+
+# Resumenes diarios: datos de este dispositivo, no del repo.
+resumenes/

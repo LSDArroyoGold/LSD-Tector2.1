@@ -216,6 +216,34 @@ CIERRE_FORZADO=FALSE
 RETENCION_AUDIO_LOCAL_MB=8192
 RETENCION_DRIVE_MB=4096
 
+# CAMBIO 2.1: retencion por TIEMPO, que es el criterio principal desde ahora.
+# Los limites de arriba quedan como red de seguridad --protegen la SD y la
+# cuota de Drive-- pero el que manda es este.
+#
+# Por que por tiempo y no por tamaño: con un limite de tamaño, un mes movido
+# acorta la ventana en silencio y nadie sabe nunca cuantos dias de audio le
+# quedan. Con dias, la app puede decir "a este dia le quedan 6".
+#
+# LO QUE SE BORRA ES SOLO EL AUDIO. El resumen de cada dia
+# (python/resumir_dia.py, carpeta Resumenes/ en Drive) tiene una fila por
+# deteccion con especie, confianza y hora, pesa ~5 KB contra ~50 MB del audio
+# del mismo dia, y NO se borra nunca. Las estadisticas de la app salen de ahi,
+# asi que el historial sobrevive aunque el audio ya no este.
+#
+# CUANTO OCUPA, con numeros medidos: el audio sale a 320 kbps mono
+# (audio_io.py de TectorNet), y en el laboratorio se midieron ~50 MB/dia
+# --806 MB en 16 dias-- que a esa tasa son unos 21 minutos de audio y del
+# orden de 60 detecciones por dia.
+#
+#     30 dias  ->  1,5 GB por equipo
+#     90 dias  ->  4,5 GB
+#    365 dias  ->   18 GB por equipo
+#
+# Un Drive gratis son 15 GB compartidos con TODO lo demas de esa cuenta, asi
+# que 365 dias no entra ni para un solo equipo. Queda en 365 igual, a pedido,
+# para la etapa de prueba con pocos equipos; bajarlo es cambiar este numero.
+RETENCION_DIAS=365
+
 # -------------------------
 
 # Estado de primer arranque. TRUE activa el hotspot de configuración inicial
