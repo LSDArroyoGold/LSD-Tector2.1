@@ -117,8 +117,6 @@ if { [ ! -f "$MARCA" ] && [[ ! "$HORA_ACTUAL" < "$HORARIO" ]] && [[ "$HORA_ACTUA
 	rm -rf "$USER_HOME/BirdSongs/Extracted/Charts/"*
 
 	if rclone copy "$USER_HOME/BirdSongs/Extracted/By_Date/" "gdrive:$DRIVE_PATH/Detecciones" --include "*.mp3"; then
-		# Retencion local Y de Drive por tamaño, borrando carpetas de fecha
-		# ENTERAS -- ver limpiar_retencion.sh para el detalle completo.
 		# El resumen del dia va ANTES de la limpieza, siempre. Es una fila
 		# por deteccion --especie, confianza, hora-- que pesa ~5 KB contra
 		# los ~50 MB del audio del mismo dia, y no se borra nunca: es de
@@ -130,6 +128,8 @@ if { [ ! -f "$MARCA" ] && [[ ! "$HORA_ACTUAL" < "$HORARIO" ]] && [[ "$HORA_ACTUA
 		rclone copy "$BASE_PATH/resumenes/" "gdrive:$DRIVE_PATH/Resumenes" \
 			--include "*.csv" 2>/dev/null
 
+		# limpiar_retencion.sh: hoy solo cuida que la microSD no se llene.
+		# De Drive no borra nada -- ver config_general.txt.
 		bash "$SCRIPT_DIR/limpiar_retencion.sh"
 	fi
 

@@ -1,17 +1,35 @@
 #!/bin/bash
 #
 # limpiar_retencion.sh - agregado el 4/9/2026, portado de LSD-Tector1.1
-# el mismo dia: acota tanto el almacenamiento LOCAL como el de DRIVE por
-# tamaño, borrando carpetas de fecha ENTERAS (Detecciones/<fecha>/ en
-# Drive, By_Date/<fecha>/ local -- ambas con todas las especies de ese
-# dia adentro) empezando por la mas vieja -- nunca archivos sueltos de
-# un dia a medias, para que sea predecible ("o esta el dia completo, o
-# no esta"). Llamado desde cierre_amanecer.sh/cierre_atardecer.sh,
-# DESPUES de que el rclone copy de esa corrida haya salido bien (si
-# Drive no esta disponible en ese momento, no se toca nada, se
-# reintenta en el proximo cierre).
+# el mismo dia. Borra audio viejo, por tiempo o por tamaño, en carpetas
+# de fecha ENTERAS (Detecciones/<fecha>/ en Drive, By_Date/<fecha>/
+# local -- ambas con todas las especies de ese dia adentro) empezando
+# por la mas vieja -- nunca archivos sueltos de un dia a medias, para
+# que sea predecible ("o esta el dia completo, o no esta"). Llamado
+# desde cierre_amanecer.sh/cierre_atardecer.sh, DESPUES de que el
+# rclone copy de esa corrida haya salido bien (si Drive no esta
+# disponible en ese momento, no se toca nada, se reintenta en el
+# proximo cierre).
 #
-# RETENCION_AUDIO_LOCAL_MB / RETENCION_DRIVE_MB en config/config_general.txt.
+# QUE HACE HOY, 11/9/2026
+# -----------------------
+# En Drive, NADA: las dos claves que lo gobiernan estan apagadas por
+# decision del laboratorio. Lo que sube a Drive se queda hasta que
+# alguien lo borre a mano. Ver la explicacion larga en
+# config/config_general.txt.
+#
+# Lo unico activo es el tope LOCAL (RETENCION_AUDIO_LOCAL_MB), que NO es
+# una politica de datos sino la proteccion de la microSD: si la tarjeta
+# se llena el equipo deja de grabar. Lo local es una copia de trabajo,
+# el original ya esta en Drive.
+#
+# SI ALGUNA VEZ SE VUELVE A ENCENDER: solo se borra AUDIO. El resumen de
+# cada dia (resumenes/, y Resumenes/ en Drive) no se toca nunca: es una
+# fila por deteccion, ~5 KB contra ~50 MB del audio del mismo dia, y de
+# ahi salen las estadisticas.
+#
+# TODO borrado deja una linea en log_sistema.txt. Cuesta nada y evita la
+# pregunta "¿y esto quien se lo llevo?" seis meses despues.
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 BASE_PATH="$(dirname "$SCRIPT_DIR")"
@@ -24,31 +42,20 @@ CONFIG_GENERAL="$BASE_PATH/config/config_general.txt"
 DRIVE_PATH=$(awk -F'=' '/^DRIVE_PATH=/{print $2}' "$CONFIG_GENERAL" | tr -d '\r')
 RETENCION_LOCAL_MB=$(awk -F'=' '/^RETENCION_AUDIO_LOCAL_MB=/{print $2}' "$CONFIG_GENERAL" | tr -d ' \r')
 RETENCION_DRIVE_MB=$(awk -F'=' '/^RETENCION_DRIVE_MB=/{print $2}' "$CONFIG_GENERAL" | tr -d ' \r')
-
-# --- Local: du por carpeta de fecha (mas nueva primero), acumular
-# tamaño, borrar carpetas enteras una vez superado el limite. ---
-
-# --- Retencion por TIEMPO (criterio principal desde la 2.1) ---
-#
-# Antes solo habia limite por tamaño, que borra el dia mas viejo cuando la
-# carpeta se pasa. Funciona, pero nadie puede saber cuantos dias de audio le
-# quedan: depende de cuanto haya cantado el mes pasado. Por dias es
-# predecible, y la app puede mostrar cuanto le queda a cada carpeta.
-#
-# Los limites por tamaño de mas abajo siguen ahi como red de seguridad.
-#
-# SOLO SE BORRA EL AUDIO. El resumen de cada dia (resumenes/, y Resumenes/ en
-# Drive) no se toca nunca: es una fila por deteccion, ~5 KB contra ~50 MB del
-# audio del mismo dia, y es de donde salen las estadisticas.
 RETENCION_DIAS=$(awk -F'=' '/^RETENCION_DIAS=/{print $2}' "$CONFIG_GENERAL" | tr -d ' \r')
 
+registrar() {
+	python3 "$BASE_PATH/python/log_sistema.py" MSG "$1" 2>/dev/null
+}
+
+# --- Por TIEMPO. Apagado con RETENCION_DIAS=0 (que es como esta). ---
 if [ -n "$RETENCION_DIAS" ] && [ "$RETENCION_DIAS" -gt 0 ] 2>/dev/null; then
 	CORTE=$(date -d "$RETENCION_DIAS days ago" +%Y-%m-%d)
 
-	# Local: las carpetas de fecha son nombres ISO, asi que comparar como
-	# texto es comparar como fecha. No se usa `find -mtime` a proposito: la
-	# fecha del NOMBRE es la del dato, y la de modificacion cambia sola
-	# cuando algo toca el archivo.
+	# Las carpetas de fecha son nombres ISO, asi que comparar como texto es
+	# comparar como fecha. No se usa `find -mtime` a proposito: la fecha del
+	# NOMBRE es la del dato, y la de modificacion cambia sola cuando algo
+	# toca el archivo.
 	find "$USER_HOME/BirdSongs/Extracted/By_Date" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
 		| while IFS= read -r FECHA; do
 			case "$FECHA" in
@@ -57,10 +64,10 @@ if [ -n "$RETENCION_DIAS" ] && [ "$RETENCION_DIAS" -gt 0 ] 2>/dev/null; then
 			esac
 			if [ "$FECHA" \< "$CORTE" ]; then
 				rm -rf "$USER_HOME/BirdSongs/Extracted/By_Date/$FECHA"
+				registrar "RETENCION: borrado audio local de $FECHA (mas de $RETENCION_DIAS dias)"
 			fi
 		done
 
-	# Drive: idem, sobre las carpetas de fecha de Detecciones/.
 	if [ -n "$DRIVE_PATH" ]; then
 		timeout 60 rclone lsf --dirs-only "gdrive:$DRIVE_PATH/Detecciones" 2>/dev/null \
 			| tr -d '/' \
@@ -70,13 +77,18 @@ if [ -n "$RETENCION_DIAS" ] && [ "$RETENCION_DIAS" -gt 0 ] 2>/dev/null; then
 					*) continue ;;
 				esac
 				if [ "$FECHA" \< "$CORTE" ]; then
-					timeout 120 rclone purge "gdrive:$DRIVE_PATH/Detecciones/$FECHA" 2>/dev/null
+					if timeout 120 rclone purge "gdrive:$DRIVE_PATH/Detecciones/$FECHA" 2>/dev/null; then
+						registrar "RETENCION: borrado de DRIVE el dia $FECHA (mas de $RETENCION_DIAS dias)"
+					fi
 				fi
 			done
 	fi
 fi
 
-if [ -n "$RETENCION_LOCAL_MB" ]; then
+# --- Tope LOCAL por tamaño: proteccion de la microSD, queda activo. ---
+# du por carpeta de fecha (mas nueva primero), acumular tamaño, borrar
+# carpetas enteras una vez superado el limite.
+if [ -n "$RETENCION_LOCAL_MB" ] && [ "$RETENCION_LOCAL_MB" -gt 0 ] 2>/dev/null; then
 	CAP_BYTES=$((RETENCION_LOCAL_MB * 1024 * 1024))
 	find "$USER_HOME/BirdSongs/Extracted/By_Date" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
 		| sort -r \
@@ -86,15 +98,21 @@ if [ -n "$RETENCION_LOCAL_MB" ]; then
 		| awk -v cap="$CAP_BYTES" '{ acumulado += $1; if (acumulado > cap) print $2 }' \
 		| while IFS= read -r FECHA; do
 			rm -rf "$USER_HOME/BirdSongs/Extracted/By_Date/$FECHA"
+			registrar "RETENCION: borrado audio local de $FECHA (la SD paso los $RETENCION_LOCAL_MB MB; la copia de Drive sigue)"
 		done
 fi
 
-# --- Drive: un solo listado recursivo con tamaños (rclone lsjson -R),
-# agrupado por carpeta de fecha en Python (mas eficiente que un
-# "rclone size" por fecha, que seria una llamada de red por dia). Best
-# effort: si el listado falla (sin red, Drive caido), no se borra nada.
-# ---
-if [ -n "$RETENCION_DRIVE_MB" ] && [ -n "$DRIVE_PATH" ]; then
+# --- Tope de DRIVE por tamaño. APAGADO (RETENCION_DRIVE_MB vacio). ---
+# Estuvo ACTIVO en 4096 MB entre el 4/9 y el 11/9/2026, o sea que pudo
+# haber borrado dias de Drive en esa semana; buscar "RETENCION:" en
+# log_sistema.txt no sirve para ese periodo porque el logueo se agrego
+# recien ahora.
+#
+# Un solo listado recursivo con tamaños (rclone lsjson -R), agrupado por
+# carpeta de fecha en Python: mas eficiente que un "rclone size" por
+# fecha, que seria una llamada de red por dia. Best effort: si el listado
+# falla (sin red, Drive caido), no se borra nada.
+if [ -n "$RETENCION_DRIVE_MB" ] && [ "$RETENCION_DRIVE_MB" -gt 0 ] 2>/dev/null && [ -n "$DRIVE_PATH" ]; then
 	CAP_BYTES=$((RETENCION_DRIVE_MB * 1024 * 1024))
 	timeout 60 rclone lsjson -R "gdrive:$DRIVE_PATH/Detecciones" --files-only 2>/dev/null \
 		| python3 -c "
@@ -121,6 +139,8 @@ for fecha in sorted(por_fecha, reverse=True):
         print(fecha)
 " \
 		| while IFS= read -r FECHA; do
-			timeout 60 rclone purge "gdrive:$DRIVE_PATH/Detecciones/$FECHA" 2>/dev/null
+			if timeout 60 rclone purge "gdrive:$DRIVE_PATH/Detecciones/$FECHA" 2>/dev/null; then
+				registrar "RETENCION: borrado de DRIVE el dia $FECHA (Drive paso los $RETENCION_DRIVE_MB MB)"
+			fi
 		done
 fi

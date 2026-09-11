@@ -195,54 +195,74 @@ CIERRE_FORZADO=FALSE
 
 # -------------------------
 
-# Retencion de audio LOCAL y de DRIVE (agregado el 4/9/2026, ver
-# scripts/limpiar_retencion.sh -- portado de LSD-Tector1.1 el mismo
-# dia, mismo mecanismo). cierre_amanecer.sh/cierre_atardecer.sh llaman
-# a ese script DESPUES de que el "rclone copy" de esa corrida haya
-# salido bien. Cuando el total (local o Drive, cada uno con su propio
-# limite) supera el limite, se borran carpetas de FECHA ENTERAS
-# (Detecciones/<fecha>/ o By_Date/<fecha>/, con todas las especies de
-# ese dia adentro) empezando por la mas vieja -- nunca archivos sueltos
-# de un dia a medias.
+# ============================================================
+# RETENCION DE AUDIO
+# DECISION 11/9/2026: EN DRIVE NO SE BORRA NADA AUTOMATICAMENTE
+# ============================================================
 #
-# Historial del numero local: primero con limite en DIAS, rediseñado el
-# mismo dia (4/9) a limite en TAMAÑO (el tamaño es el factor que
-# realmente puede llenar la SD). 806MB reales en 16 dias de uso en el
-# labo (~50MB/dia) -> 10240MB representaban ~6 meses a ese ritmo. Bajado
-# primero a 4096MB (parejo con Drive) y despues a 8192MB (8GB) a pedido
-# explicito de Diego -- local y Drive quedan con numeros DISTINTOS a
-# proposito: Drive tiene limite propio de cuenta (4GB), pero la SD local
-# (59GB, 43GB libres) tiene mas margen y no hace falta que coincidan.
-RETENCION_AUDIO_LOCAL_MB=8192
-RETENCION_DRIVE_MB=4096
-
-# CAMBIO 2.1: retencion por TIEMPO, que es el criterio principal desde ahora.
-# Los limites de arriba quedan como red de seguridad --protegen la SD y la
-# cuota de Drive-- pero el que manda es este.
+# De las tres claves de abajo, la unica encendida es la LOCAL. Nada de lo que
+# sube a Drive se borra solo: la limpieza de lo viejo se hace a mano, mirando
+# que carpetas ya no se usan.
 #
-# Por que por tiempo y no por tamaño: con un limite de tamaño, un mes movido
-# acorta la ventana en silencio y nadie sabe nunca cuantos dias de audio le
-# quedan. Con dias, la app puede decir "a este dia le quedan 6".
+# El motivo es de criterio, no tecnico: con pocos equipos y sin usuarios
+# externos todavia, el costo de guardar todo es chico y el costo de borrar
+# algo que hacia falta es alto. Se revisa cuando haya mas Tectors en uso.
 #
-# LO QUE SE BORRA ES SOLO EL AUDIO. El resumen de cada dia
-# (python/resumir_dia.py, carpeta Resumenes/ en Drive) tiene una fila por
-# deteccion con especie, confianza y hora, pesa ~5 KB contra ~50 MB del audio
-# del mismo dia, y NO se borra nunca. Las estadisticas de la app salen de ahi,
-# asi que el historial sobrevive aunque el audio ya no este.
+# OJO CON LO QUE SE APAGO ACA: RETENCION_DRIVE_MB=4096 estuvo ACTIVO entre el
+# 4/9 y el 11/9/2026, y borraba de Drive carpetas de fecha ENTERAS
+# (Detecciones/<fecha>/, con todas las especies de ese dia adentro) empezando
+# por la mas vieja, cada vez que el total pasaba los 4 GB. Al ritmo medido
+# (~50 MB/dia) ese tope se alcanza a los ~80 dias de grabacion. Nadie lo
+# habia pedido de forma explicita: venia en la misma tanda que la retencion
+# local, portada de la 1.1 --donde probablemente siga encendida--.
+#
+# Para volver a encender alguno, poner un numero:
+#     RETENCION_DIAS=30        borra el audio de mas de 30 dias
+#     RETENCION_DRIVE_MB=4096  borra lo mas viejo pasado ese tamaño
+# Lo primero es preferible: por tamaño nadie puede saber cuantos dias le
+# quedan, depende de cuanto se haya cantado el mes pasado.
+#
+# LO QUE NO DEPENDE DE ESTO: el resumen de cada dia
+# (python/resumir_dia.py -> Resumenes/ en Drive) tiene una fila por deteccion
+# con especie, confianza y hora, pesa ~5 KB contra ~50 MB del audio del mismo
+# dia, y no se borra en ningun caso. Las estadisticas salen de ahi, asi que
+# el historial sobrevive al audio --tanto si algun dia se vuelve a encender
+# el borrado como si se borra a mano--.
 #
 # CUANTO OCUPA, con numeros medidos: el audio sale a 320 kbps mono
-# (audio_io.py de TectorNet), y en el laboratorio se midieron ~50 MB/dia
-# --806 MB en 16 dias-- que a esa tasa son unos 21 minutos de audio y del
-# orden de 60 detecciones por dia.
+# (audio_io.py de TectorNet), y en el labo se midieron ~50 MB/dia --806 MB en
+# 16 dias-- que a esa tasa son unos 21 minutos de audio y del orden de 60
+# detecciones por dia.
 #
 #     30 dias  ->  1,5 GB por equipo
 #     90 dias  ->  4,5 GB
 #    365 dias  ->   18 GB por equipo
 #
-# Un Drive gratis son 15 GB compartidos con TODO lo demas de esa cuenta, asi
-# que 365 dias no entra ni para un solo equipo. Queda en 365 igual, a pedido,
-# para la etapa de prueba con pocos equipos; bajarlo es cambiar este numero.
-RETENCION_DIAS=365
+# Un Drive gratis son 15 GB compartidos con TODO lo demas de esa cuenta.
+#
+# El mecanismo esta en scripts/limpiar_retencion.sh, que llaman
+# cierre_amanecer.sh y cierre_atardecer.sh DESPUES de que el "rclone copy" de
+# esa corrida haya salido bien. Todo borrado deja una linea en
+# log_sistema.txt (el logueo se agrego el 11/9, no cubre lo anterior).
+
+# --- LOCAL: esto SI queda activo, y es a proposito ---
+#
+# No es politica de datos, es la proteccion de la microSD del equipo: si la
+# tarjeta se llena, el Tector deja de grabar y no arranca bien. Lo local es
+# una copia de trabajo --lo que importa ya subio a Drive--, asi que perder lo
+# viejo de aca no pierde el dato. Por eso son dos claves separadas.
+#
+# Historial del numero: primero fue limite en DIAS, rediseñado el mismo dia
+# (4/9) a limite en TAMAÑO, que es el factor que realmente puede llenar la
+# SD. 10240 MB eran ~6 meses al ritmo medido; bajado a 4096 MB (parejo con
+# Drive) y despues a 8192 MB a pedido explicito de Diego. Local y Drive no
+# tienen por que coincidir: la SD son 59 GB con 43 GB libres.
+RETENCION_AUDIO_LOCAL_MB=8192
+
+# --- DRIVE: apagadas las dos ---
+# Vacio o 0 = apagado, en cualquiera de las dos.
+RETENCION_DRIVE_MB=
+RETENCION_DIAS=0
 
 # -------------------------
 
