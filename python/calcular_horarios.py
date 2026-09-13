@@ -16,8 +16,24 @@ def leer_config(archivo, clave):
             if clave + '=' in linea:
                 return linea.split('=',1)[1].strip()
 
-LAT = float(leer_config(CONFIG_GENERAL, 'LAT'))
-LON = float(leer_config(CONFIG_GENERAL, 'LON'))
+# Las coordenadas salen de config_general.txt (las de instalacion), SALVO que
+# config_horarios.txt traiga LAT= y LON=: ese archivo lo escribe la app de
+# Tector Hub y el equipo lo baja de Drive, asi que es la unica forma de
+# cambiarlas a distancia (config_general.txt no se sincroniza). Si lo que
+# viene no es un numero, se ignora y se sigue con las de instalacion: un
+# valor roto no puede dejar al equipo sin horarios.
+def coordenadas():
+    try:
+        lat = float(leer_config(CONFIG_HORARIOS, 'LAT'))
+        lon = float(leer_config(CONFIG_HORARIOS, 'LON'))
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            return lat, lon
+    except (TypeError, ValueError):
+        pass
+    return (float(leer_config(CONFIG_GENERAL, 'LAT')),
+            float(leer_config(CONFIG_GENERAL, 'LON')))
+
+LAT, LON = coordenadas()
 
 DURACION_AMANECER = float(leer_config(CONFIG_HORARIOS, 'DURACION_AMANECER_SYNC'))
 DURACION_ATARDECER = float(leer_config(CONFIG_HORARIOS, 'DURACION_ATARDECER_SYNC'))
